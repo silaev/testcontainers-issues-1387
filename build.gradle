@@ -1,0 +1,124 @@
+import io.franzbecker.gradle.lombok.task.DelombokTask
+
+buildscript {
+    ext {
+        junitVersion = '5.5.1'
+        testcontainersVersion = '1.12.0'
+    }
+}
+
+plugins {
+    id 'java'
+    id "io.franzbecker.gradle-lombok" version "3.1.0"
+    id 'java-library'
+    id 'idea'
+    id "com.github.johnrengelman.shadow" version "5.1.0"
+    id 'jacoco'
+    id 'maven-publish'
+}
+
+group = 'org.testcontainers'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+lombok {
+    version = "1.18.8"
+}
+
+dependencies {
+    compile("org.testcontainers:testcontainers:${testcontainersVersion}")
+
+    testCompile("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
+    testCompile('org.mockito:mockito-core:3.0.0')
+    testCompile('ch.qos.logback:logback-classic:1.2.3')
+    testRuntime("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
+    testCompile("org.mongodb:mongodb-driver-reactivestreams:1.12.0")
+    testCompile("org.mongodb:mongodb-driver-sync:3.11.0")
+    testCompile("org.mockito:mockito-junit-jupiter:3.0.0")
+}
+
+wrapper {
+    gradleVersion = '5.4.1'
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+test {
+    failFast = true
+}
+
+tasks.withType(Test) { Test task ->
+    task.useJUnitPlatform { JUnitPlatformOptions ops ->
+        ops.excludeTags("integration-test")
+    }
+
+    testLogging.showStandardStreams = true
+    testLogging.exceptionFormat = 'full'
+
+    reports.html.destination = file("${reporting.baseDir}/${name}")
+}
+
+task delombok(type: DelombokTask) {
+    ext.outputDir = file("$buildDir/delombok")
+    outputs.dir(outputDir)
+    sourceSets.main.java.srcDirs.each {
+        inputs.dir(it)
+        args(it, "-d", outputDir)
+    }
+    doFirst {
+        outputDir.deleteDir()
+    }
+}
+
+task sourcesJar(type: Jar) {
+    dependsOn delombok
+    from delombok.outputDir
+    archiveClassifier = 'sources'
+}
+
+task javadocJar(type: Jar) {
+    from javadoc
+    archiveClassifier = 'javadoc'
+}
+
+compileJava {
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+
+    options.encoding = 'UTF-8'
+    options.compilerArgs << "-Xlint:deprecation"
+}
+
+compileTestJava {
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+
+    options.encoding = 'UTF-8'
+    options.compilerArgs << "-Xlint:deprecation"
+}
+
+javadoc {
+    dependsOn delombok
+    source = delombok.outputDir
+    options.locale = 'en_US'
+
+    if (JavaVersion.current().isJava9Compatible()) {
+        options.addBooleanOption('html5', true)
+    }
+}
+
+def isPublishingProperty = 'isPublishing'
+
+sourceSets {
+    def isPublishing = System.properties.containsKey(isPublishingProperty) &&
+        (System.properties.get(isPublishingProperty) == "true")
+    main {
+        java {
+            srcDirs = isPublishing ? [delombok.outputDir] : ['src/main/java']
+        }
+    }
+}
+
+compileJava.dependsOn(delombok)
