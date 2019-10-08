@@ -4,9 +4,11 @@ import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.TransactionOptions;
 import com.mongodb.WriteConcern;
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.TransactionBody;
-import lombok.extern.slf4j.Slf4j;
-import lombok.val;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -23,13 +25,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 /**
  * @author Konstantin Silaev on 10/8/2019
  */
-
-@Slf4j
 class Test1387 {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Test1387.class);
     private static Network network = Network.newNetwork();
-
     private static int MONGO_PORT = 27017;
-
     public static GenericContainer mongo1 = new GenericContainer("mongo:4.0.8")
         .withNetwork(network)
         .withNetworkAliases("M1")
@@ -62,7 +61,7 @@ class Test1387 {
 
     @Test
     void shouldExecuteTransactionsReplicaSet() {
-        val mongoRsUrl = buildMongoRsUrl(mongo1, mongo2, mongo3);
+        String mongoRsUrl = buildMongoRsUrl(mongo1, mongo2, mongo3);
         assertNotNull(mongoRsUrl);
 
         execTransaction(mongoRsUrl);
@@ -76,25 +75,25 @@ class Test1387 {
     private void execTransaction(final String mongoRsUrl) {
         //GIVEN
 
-        val mongoSyncClient = com.mongodb.client.MongoClients.create(mongoRsUrl);
+        MongoClient mongoSyncClient = MongoClients.create(mongoRsUrl);
         mongoSyncClient.getDatabase("mydb1").getCollection("foo")
             .withWriteConcern(WriteConcern.MAJORITY).insertOne(new Document("abc", 0));
         mongoSyncClient.getDatabase("mydb2").getCollection("bar")
             .withWriteConcern(WriteConcern.MAJORITY).insertOne(new Document("xyz", 0));
 
-        val clientSession = mongoSyncClient.startSession();
-        val txnOptions = TransactionOptions.builder()
+        ClientSession clientSession = mongoSyncClient.startSession();
+        TransactionOptions txnOptions = TransactionOptions.builder()
             .readPreference(ReadPreference.primary())
             .readConcern(ReadConcern.LOCAL)
             .writeConcern(WriteConcern.MAJORITY)
             .build();
 
-        val trxResult = "Inserted into collections in different databases";
+        String trxResult = "Inserted into collections in different databases";
 
         //WHEN + THEN
         TransactionBody<String> txnBody = () -> {
-            val coll1 = mongoSyncClient.getDatabase("mydb1").getCollection("foo");
-            val coll2 = mongoSyncClient.getDatabase("mydb2").getCollection("bar");
+            MongoCollection<Document> coll1 = mongoSyncClient.getDatabase("mydb1").getCollection("foo");
+            MongoCollection<Document> coll2 = mongoSyncClient.getDatabase("mydb2").getCollection("bar");
 
             coll1.insertOne(clientSession, new Document("abc", 1));
             coll2.insertOne(clientSession, new Document("xyz", 999));
@@ -102,7 +101,7 @@ class Test1387 {
         };
 
         try {
-            val trxResultActual = clientSession.withTransaction(txnBody, txnOptions);
+            String trxResultActual = clientSession.withTransaction(txnBody, txnOptions);
             assertEquals(trxResult, trxResultActual);
         } catch (RuntimeException re) {
             assertEquals(
